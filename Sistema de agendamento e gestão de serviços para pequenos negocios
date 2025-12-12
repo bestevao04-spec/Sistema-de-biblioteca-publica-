@@ -1,0 +1,109 @@
+# domain/cliente.py
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Cliente:
+    id: str
+    nome: str
+    email: str
+    telefone: str
+# domain/servico.py
+from dataclasses import dataclass
+
+@dataclass
+class Servico:
+    id: str
+    nome: str
+    descricao: str
+    preco_base: float
+    duracao_minutos: int
+
+    def preco_com_desconto(self, percentual: float) -> float:
+        if not (0 <= percentual <= 100):
+            raise ValueError("Percentual inválido.")
+        return round(self.preco_base * (1 - percentual/100), 2)
+# domain/agendamento.py
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from .cliente import Cliente
+from .servico import Servico
+
+class StatusAgendamento(Enum):
+    CRIADO = "CRIADO"
+    CONFIRMADO = "CONFIRMADO"
+    CONCLUIDO = "CONCLUIDO"
+    CANCELADO = "CANCELADO"
+
+@dataclass
+class Agendamento:
+    id: str
+    cliente: Cliente
+    servico: Servico
+    inicio: datetime
+    fim: datetime
+    status: StatusAgendamento = StatusAgendamento.CRIADO
+
+    def confirmar(self):
+        if self.status != StatusAgendamento.CRIADO:
+            raise ValueError("Apenas agendamentos criados podem ser confirmados.")
+        self.status = StatusAgendamento.CONFIRMADO
+
+    def cancelar(self, motivo: str | None = None):
+        if self.status in (StatusAgendamento.CONCLUIDO, StatusAgendamento.CANCELADO):
+            raise ValueError("Não é possível cancelar.")
+        self.status = StatusAgendamento.CANCELADO
+# repositories/agendamento_repository.py
+from typing import Protocol, Iterable
+from domain.agendamento import Agendamento
+
+class AgendamentoRepository(Protocol):
+    def salvar(self, ag: Agendamento) -> None: ...
+    def buscar_por_id(self, id: str) -> Agendamento | None: ...
+    def listar(self) -> Iterable[Agendamento]: ...
+    def listar_por_intervalo(self, inicio, fim) -> Iterable[Agendamento]: ...
+# services/agendamento_service.py
+from datetime import datetime
+from domain.agendamento import Agendamento, StatusAgendamento
+from domain.cliente import Cliente
+from domain.servico import Servico
+from repositories.agendamento_repository import AgendamentoRepository
+
+class AgendamentoService:
+    def __init__(self, repo: AgendamentoRepository):
+        self.repo = repo
+
+    def criar(self, id: str, cliente: Cliente, servico: Servico, inicio: datetime) -> Agendamento:
+        fim = inicio.replace(minute=inicio.minute + servico.duracao_minutos)  # simplificação
+        self._validar_conflito(inicio, fim)
+        ag = Agendamento(id=id, cliente=cliente, servico=servico, inicio=inicio, fim=fim)
+        self.repo.salvar(ag)
+        return ag
+
+    def _validar_conflito(self, inicio: datetime, fim: datetime):
+        for ag in self.repo.listar_por_intervalo(inicio, fim):
+            if ag.status != StatusAgendamento.CANCELADO:
+                raise ValueError("Conflito de horário encontrado.")
+.
+├─ README.md
+├─ src/
+│  ├─ domain/
+│  │  ├─ cliente.py
+│  │  ├─ servico.py
+│  │  ├─ agendamento.py
+│  │  └─ pagamento.py
+│  ├─ services/
+│  │  ├─ agendamento_service.py
+│  │  ├─ precificacao_service.py
+│  │  └─ pagamento_service.py
+│  ├─ repositories/
+│  │  ├─ interfaces.py
+│  │  └─ memory_repo.py
+│  └─ app.py  # CLI ou API
+├─ tests/
+│  ├─ test_cliente.py
+│  ├─ test_agendamento.py
+│  └─ test_services.py
+├─ .github/workflows/ci.yml
+├─ pyproject.toml  # dependências e configs
+└─ CHANGELOG.md
